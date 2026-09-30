@@ -449,23 +449,36 @@ fn recorded_view(file: &StagedFile, written: &str) -> String {
 }
 
 /// Prior-snapshot lines that keep both their number and content in `after`:
-/// the unchanged leading run, filtered by what `prior` displayed. A missing or
-/// unrestricted prior snapshot let the edit anchor anywhere, so the whole run
-/// carries over. Lines after the first change shifted, so their old numbers
-/// never carry.
+/// every unchanged run the edit left unshifted (the leading run, and any run
+/// after hunks whose line-count deltas cancel out), filtered by what `prior`
+/// displayed. A missing or unrestricted prior snapshot let the edit anchor
+/// anywhere, so those runs carry whole. Shifted lines keep their content under
+/// a new number the prior read never showed, so their old numbers never carry.
 fn carried_seen_lines(before: &str, after: &str, prior: Option<&Snapshot>) -> Vec<u32> {
-	let unchanged = before
-		.split('\n')
-		.zip(after.split('\n'))
-		.take_while(|(old, new)| old == new)
-		.count();
-	let unchanged = u32::try_from(unchanged).unwrap_or(u32::MAX);
-	match prior.and_then(|snapshot| snapshot.seen_lines.as_ref()) {
-		// `range(1..=0)` panics; a first-line change carries nothing.
-		_ if unchanged == 0 => Vec::new(),
-		Some(seen) if !seen.is_empty() => seen.range(1..=unchanged).copied().collect(),
-		_ => (1..=unchanged).collect(),
+	let restricted = prior
+		.and_then(|snapshot| snapshot.seen_lines.as_ref())
+		.filter(|seen| !seen.is_empty());
+	let mut carried = Vec::new();
+	let mut before_line = 1_u32;
+	let mut after_line = 1_u32;
+	for run in pi_diff::line_runs_str(before, after) {
+		if run.added {
+			after_line += run.count;
+		} else if run.removed {
+			before_line += run.count;
+		} else {
+			if before_line == after_line {
+				let lines = before_line..before_line + run.count;
+				match restricted {
+					Some(seen) => carried.extend(seen.range(lines).copied()),
+					None => carried.extend(lines),
+				}
+			}
+			before_line += run.count;
+			after_line += run.count;
+		}
 	}
+	carried
 }
 
 /// Model-facing text for one file (`formatEditResultText`).

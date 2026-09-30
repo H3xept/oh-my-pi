@@ -1096,7 +1096,65 @@ async fn edit_results_carry_unshifted_prior_provenance_only() {
 }
 
 #[tokio::test]
-async fn edit_of_first_line_with_prior_read_carries_no_provenance() {
+async fn edit_results_carry_prior_provenance_past_line_neutral_hunks() {
+	let source = (1..=40)
+		.map(|n| format!("line{n}\n"))
+		.collect::<Vec<_>>()
+		.concat();
+	let all_lines = (1..=40).collect::<Vec<u32>>();
+
+	let mut workspace = Workspace::new(EditMode::Hashline);
+	workspace.config.enforce_seen_lines = true;
+	workspace.write("a.txt", &source);
+	let read_tag = workspace.snapshot("a.txt", &source, Some(&all_lines));
+	let writer = common::DiskWriter::default();
+
+	// The insert after 10 and the cut of 20 cancel out: 11-19 shift down by
+	// one, 21-40 keep their numbers.
+	let edited = workspace
+		.apply_json(
+			&json!({ "input": format!("[a.txt#{read_tag}]\nPUT >10:\n+new\nCUT 20.=20") }),
+			&writer,
+		)
+		.await
+		.expect("inserts after 10 and cuts 20");
+	assert!(
+		!edited.text.contains("35:line35"),
+		"edit result must not display line 35: {}",
+		edited.text
+	);
+	assert!(
+		!edited.text.contains("16:line15"),
+		"edit result must not display line 16: {}",
+		edited.text
+	);
+	let edited_tag = file_hash(&workspace.read("a.txt").expect("edited file"));
+
+	let shifted = workspace
+		.apply_json(
+			&json!({ "input": format!("[a.txt#{edited_tag}]\nPUT 16.=16:\n+LINE15") }),
+			&writer,
+		)
+		.await
+		.expect_err("line 16 now holds old line 15; the read never displayed that number");
+	assert!(shifted.to_string().contains("lines 16"), "{shifted}");
+
+	workspace
+		.apply_json(
+			&json!({ "input": format!("[a.txt#{edited_tag}]\nPUT 35.=35:\n+LINE35") }),
+			&writer,
+		)
+		.await
+		.expect("line 35 kept its number and content, so the full read still covers it");
+	let expected = source
+		.replacen("line10\n", "line10\nnew\n", 1)
+		.replacen("line20\n", "", 1)
+		.replacen("line35\n", "LINE35\n", 1);
+	assert_eq!(workspace.read("a.txt").as_deref(), Some(expected.as_str()));
+}
+
+#[tokio::test]
+async fn edit_of_first_line_with_prior_read_applies() {
 	let source: String = (1..=5).map(|n| format!("line{n}\n")).collect();
 	let all_lines = (1..=5).collect::<Vec<u32>>();
 
