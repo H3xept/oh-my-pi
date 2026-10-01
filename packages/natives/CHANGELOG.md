@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed hashline edits rejecting lines as "never displayed" after an earlier edit to the same file, even when a read had shown them and the earlier edit left their line numbers unchanged ([#13982](https://github.com/can1357/oh-my-pi/pull/13982) by [@H3xept](https://github.com/H3xept)).
+
 ## [18.4.7] - 2026-10-01
 
 ### Fixed
